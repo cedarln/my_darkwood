@@ -211,6 +211,7 @@
       else if (DW.state === 'menu') menuTick(dt);
       else if (DW.state === 'sleep') sleepTick(dt);
       else if (DW.state === 'pause') { /* 冻结 */ }
+      if (DW.music) DW.music.update(dt, S);
     }
     draw();
     requestAnimationFrame(frame);
@@ -350,6 +351,7 @@
   // ---------- 事件：昼夜 / 袭击 ----------
   game.onNightfall = function (st) {
     var day = st.time.day;
+    if (DW.music) DW.music.event('night');
     DW.ui.toast('天黑了。森林开始移动。', 'warn');
     if (day >= 2 && day % 2 === 0) {
       st.raidAt = st.t + DW.rand(35, 70);
@@ -364,6 +366,7 @@
   function doRaid() {
     var day = S.time.day;
     var n = Math.min(7, 2 + Math.floor(day / 2));
+    if (DW.music) DW.music.event('raid');
     DW.sfx.alarm();
     DW.ui.toast('有人袭击你的据点！（' + n + ' 人）', 'bad');
     for (var i = 0; i < n; i++) {
@@ -654,6 +657,7 @@
     st.build.type = null;
     var P = st.player;
     DW.sfx.lose();
+    if (DW.music) DW.music.event('death');
     DW.ui.endScreen(false,
       '死因：<b>' + (reason || '未知') + '</b><br>' +
       '存活 <b>' + st.time.day + '</b> 天 · 击杀 <b>' + P.kills + '</b> · 电台零件 <b>' + P.inv.part + '/3</b><br>' +

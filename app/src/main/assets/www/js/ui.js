@@ -7,6 +7,29 @@
   var el = {};
   var layers = ['Menu', 'End', 'Loot', 'Bag', 'Build', 'Pause'];
 
+  // 音效/音乐开关单独存，不动存档结构
+  var AUDIO_KEY = 'anlin_audio_v1';
+  function loadAudioPrefs() {
+    try {
+      var p = JSON.parse(global.localStorage.getItem(AUDIO_KEY) || '{}');
+      if (typeof p.sfx === 'boolean') DW.sfx.on = p.sfx;
+      if (typeof p.music === 'boolean') DW.music.on = p.music;
+    } catch (e) { /* 忽略 */ }
+  }
+  function saveAudioPrefs() {
+    try { global.localStorage.setItem(AUDIO_KEY, JSON.stringify({ sfx: DW.sfx.on, music: DW.music.on })); }
+    catch (e) { /* 忽略 */ }
+  }
+  function syncAudioBtns() {
+    var sb = document.getElementById('tbSound'), mb = document.getElementById('tbMusic');
+    if (sb) sb.textContent = DW.sfx.on ? '音效·开' : '音效·关';
+    if (mb) mb.textContent = DW.music.on ? '音乐·开' : '音乐·关';
+  }
+  ui.audioFirstTouch = function () {
+    if (!DW.sfx.on && !DW.music.on) return;
+    if (DW.sfx.unlock()) { if (DW.music.on) DW.music.enable(); }
+  };
+
   ui.blocked = function () {
     if (DW.state !== 'play') return true;
     for (var i = 0; i < layers.length; i++) {
@@ -59,6 +82,7 @@
 
   ui.init = function (state) {
     S = state;
+    loadAudioPrefs(); syncAudioBtns();
     ['layerMenu', 'layerEnd', 'layerLoot', 'layerBag', 'layerBuild', 'layerPause'].forEach(function (id) { el[id] = document.getElementById(id); });
     el.pad = document.getElementById('pad');
     el.stick = document.getElementById('stick');
@@ -75,10 +99,19 @@
 
     var cv = document.getElementById('cv');
 
+    // 第一次交互解锁 WebAudio 并起配乐：浏览器不给手势就不许出声
+    function firstTouch() {
+      ui.audioFirstTouch();
+      global.removeEventListener('pointerdown', firstTouch);
+      global.removeEventListener('keydown', firstTouch);
+    }
+    global.addEventListener('pointerdown', firstTouch);
+    global.addEventListener('keydown', firstTouch);
+
     // 触摸摇杆 + 建造点选
     cv.addEventListener('pointerdown', function (ev) {
       ev.preventDefault();
-      DW.sfx.unlock();
+      ui.audioFirstTouch();
       var x = ev.clientX, y = ev.clientY;
       if (S.build.type) { DW.game.buildAt(x, y); return; }
       if (x < global.innerWidth * 0.46) {
@@ -131,10 +164,18 @@
     // 顶栏
     document.getElementById('tbBag').addEventListener('click', function () { ui.openBag(); });
     document.getElementById('tbBuild').addEventListener('click', function () { ui.openBuild(); });
-    document.getElementById('tbSound').addEventListener('click', function (ev) {
+    document.getElementById('tbSound').addEventListener('click', function () {
       DW.sfx.on = !DW.sfx.on;
-      ev.currentTarget.textContent = DW.sfx.on ? '音效·开' : '音效·关';
+      saveAudioPrefs(); syncAudioBtns();
       if (DW.sfx.on) { DW.sfx.unlock(); DW.sfx.pick(); }
+    });
+    document.getElementById('tbMusic').addEventListener('click', function () {
+      if (DW.music.on) { DW.music.disable(); }
+      else if (!DW.music.enable()) {
+        DW.ui.toast('这台设备不支持 WebAudio，配乐已关闭', 'warn');
+        DW.music.on = false;
+      } else { DW.ui.toast('配乐已开：夜里会更沉', 'good'); }
+      saveAudioPrefs(); syncAudioBtns();
     });
     document.getElementById('tbMenu').addEventListener('click', function () {
       if (isOpen('Pause')) { close('Pause'); DW.state = 'play'; }

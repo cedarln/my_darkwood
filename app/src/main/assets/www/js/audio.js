@@ -6,7 +6,6 @@
   var noiseBuf = null;
 
   function ac() {
-    if (!sfx.on) return null;
     if (!sfx.ctx) {
       try {
         var C = global.AudioContext || global.webkitAudioContext;
@@ -20,7 +19,20 @@
     if (sfx.ctx.state === 'suspended' && sfx.ctx.resume) sfx.ctx.resume();
     return sfx.ctx;
   }
-  sfx.unlock = function () { ac(); };
+  // 给配乐模块用：建/唤醒上下文，不看音效开关
+  sfx.ensure = ac;
+  sfx.unlock = function () { return ac(); };
+
+  // 切后台就把整个上下文挂起：否则手机上的玩家在菜单外还听见心跳
+  if (global.document && global.document.addEventListener) {
+    global.document.addEventListener('visibilitychange', function () {
+      if (!sfx.ctx) return;
+      try {
+        if (global.document.hidden) { if (sfx.ctx.suspend) sfx.ctx.suspend(); }
+        else if (sfx.on || (DW.music && DW.music.on)) { if (sfx.ctx.resume) sfx.ctx.resume(); }
+      } catch (e) { /* 忽略 */ }
+    });
+  }
 
   function noise(c, dur, type, freq, q, gain, sweepTo) {
     var src = c.createBufferSource();

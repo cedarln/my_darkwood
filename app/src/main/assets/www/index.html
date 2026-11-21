@@ -121,7 +121,8 @@
     #minimap{width:78px;height:78px;}
     .chips{top:calc(78px + 18px + env(safe-area-inset-top));}
     .chip{font-size:10px;padding:2px 6px;}
-    #topBtns .tb{padding:5px 9px;font-size:11px;}
+    #topBtns{gap:5px;}
+    #topBtns .tb{padding:4px 6px;font-size:10px;border-radius:7px;}
   }
 </style>
 </head>
@@ -150,6 +151,7 @@
     <div class="tb" id="tbBag">背包</div>
     <div class="tb" id="tbBuild">建造</div>
     <div class="tb" id="tbSound">音效·开</div>
+    <div class="tb" id="tbMusic">音乐·开</div>
     <div class="tb" id="tbMenu">菜单</div>
   </div>
 
@@ -238,6 +240,7 @@
 <script src="js/world.js"></script>
 <script src="js/render.js"></script>
 <script src="js/audio.js"></script>
+<script src="js/music.js"></script>
 <script src="js/entities.js"></script>
 <script src="js/ui.js"></script>
 <script src="js/main.js"></script>
