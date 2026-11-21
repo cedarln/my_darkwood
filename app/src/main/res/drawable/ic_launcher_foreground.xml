@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 三棵剪影松树 + 一弯月牙，居中在 108 画布的 66dp 安全区附近 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- 月牙：外圆偶奇减去内圆 -->
+    <path android:fillColor="#e6f0ff" android:fillType="evenOdd"
+        android:pathData="M78,30 m-9,0 a9,9 0 1,0 18,0 a9,9 0 1,0 -18,0 Z M81,27 m-8,0 a8,8 0 1,0 16,0 a8,8 0 1,0 -16,0 Z" />
+    <!-- 地面 -->
+    <path android:fillColor="#06100a" android:pathData="M18,82h72v6h-72z" />
+    <!-- 左树 -->
+    <path android:fillColor="#06100a" android:pathData="M24,80 L35,48 L46,80 Z" />
+    <!-- 右树 -->
+    <path android:fillColor="#06100a" android:pathData="M62,80 L73,52 L84,80 Z" />
+    <!-- 中树（最高，两层） -->
+    <path android:fillColor="#06100a" android:pathData="M40,80 L54,38 L68,80 Z" />
+    <path android:fillColor="#14251c" android:pathData="M45,60 L54,52 L63,60 Z" />
+    <path android:fillColor="#06100a" android:pathData="M52,80 L54,86 L56,80 Z" />
+</vector>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 交付物文件名沿用作品原名（见发布规范） -->
+    <string name="app_name">暗林</string>
+    <string name="update_downloading">暗林 更新包</string>
+</resources>

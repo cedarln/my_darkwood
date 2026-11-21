@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0d0f0c">
+<title>暗林 · 幸存夜</title>
+<style>
+  :root{
+    --bg:#0b0d0a; --panel:rgba(18,20,16,.86); --line:#3a3f33;
+    --ink:#d9d6c6; --dim:#8e8c7c; --hp:#b0413e; --food:#b98b3a;
+    --water:#4d8fa6; --energy:#7f9b4a; --sanity:#7a6fa0;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);
+    font-family:-apple-system,"PingFang SC","Noto Sans SC",sans-serif;color:var(--ink);
+    user-select:none;-webkit-user-select:none;touch-action:none;}
+  #app{position:fixed;inset:0;}
+  canvas{display:block;}
+  #cv{position:absolute;inset:0;width:100%;height:100%;}
+
+  /* ---------- HUD ---------- */
+  #hud{position:absolute;inset:0;pointer-events:none;z-index:5;}
+  .stats{position:absolute;top:calc(8px + env(safe-area-inset-top));left:10px;width:132px;
+    background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 8px 6px;}
+  .clock{font-size:13px;letter-spacing:.5px;color:#e8e5d2;display:flex;justify-content:space-between;}
+  .clock b{font-weight:600}
+  .clock .phase{font-size:11px;color:var(--dim)}
+  .bar{height:5px;border-radius:3px;background:#22251d;margin-top:5px;overflow:hidden;position:relative;}
+  .bar i{position:absolute;inset:0;transform-origin:left;transform:scaleX(1);transition:transform .2s linear;}
+  .bar.hp i{background:var(--hp)} .bar.food i{background:var(--food)}
+  .bar.water i{background:var(--water)} .bar.energy i{background:var(--energy)}
+  .bar.sanity i{background:var(--sanity)}
+  .stats .row{display:flex;align-items:center;gap:5px;margin-top:5px;font-size:10px;color:var(--dim)}
+  #minimap{position:absolute;top:calc(8px + env(safe-area-inset-top));right:10px;
+    width:96px;height:96px;border:1px solid var(--line);border-radius:8px;background:rgba(10,12,9,.8);}
+  .chips{position:absolute;top:calc(96px + 20px + env(safe-area-inset-top));right:10px;
+    display:flex;flex-direction:column;gap:3px;align-items:flex-end;}
+  .chip{background:var(--panel);border:1px solid var(--line);border-radius:20px;
+    padding:2px 8px;font-size:11px;color:#cfd0bf;white-space:nowrap;}
+  .chip b{color:#f0e9c8;font-weight:600}
+  #toasts{position:absolute;left:50%;bottom:47%;transform:translateX(-50%);width:min(78vw,380px);
+    display:flex;flex-direction:column;align-items:center;gap:4px;}
+  .toast{background:rgba(16,18,14,.82);border:1px solid var(--line);border-radius:6px;
+    padding:4px 12px;font-size:12.5px;color:#e2dfc9;animation:tin .25s ease-out;}
+  .toast.warn{border-color:#6a4a30;color:#f0cfa0}
+  .toast.bad{border-color:#6d3230;color:#f3b4ae}
+  .toast.good{border-color:#42603a;color:#cfe6b8}
+  @keyframes tin{from{opacity:0;transform:translateY(8px)}to{opacity:1}}
+  #prompt{position:absolute;left:50%;bottom:22%;transform:translateX(-50%);
+    font-size:13px;color:#f0ead0;background:rgba(16,18,14,.9);border:1px solid #565a45;
+    border-radius:16px;padding:5px 14px;display:none;}
+  #alertWrap{position:absolute;top:calc(64px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);
+    width:120px;text-align:center;}
+  #alertTxt{font-size:12px;color:#e8b84a;letter-spacing:2px;text-shadow:0 1px 4px #000;}
+  #dmgFlash{position:absolute;inset:0;background:radial-gradient(ellipse at center,transparent 45%,rgba(120,20,18,.55));opacity:0;transition:opacity .25s;}
+
+  /* ---------- touch controls ---------- */
+  #pad{position:absolute;left:calc(16px + env(safe-area-inset-left));bottom:calc(24px + env(safe-area-inset-bottom));
+    width:132px;height:132px;border-radius:50%;background:rgba(20,23,17,.5);
+    border:1px solid #33382b;z-index:7;}
+  #stick{position:absolute;left:50%;top:50%;width:60px;height:60px;margin:-30px 0 0 -30px;border-radius:50%;
+    background:rgba(120,128,100,.35);border:1px solid #4c5240;}
+  #btns{position:absolute;right:calc(14px + env(safe-area-inset-right));bottom:calc(20px + env(safe-area-inset-bottom));
+    display:grid;grid-template-columns:repeat(3,68px);gap:9px;z-index:7;}
+  .btn{pointer-events:auto;height:68px;border-radius:50%;background:rgba(26,29,22,.72);
+    border:1px solid #454b3a;color:#dcdaC7;font-size:13px;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;line-height:1.15;}
+  .btn span{font-size:10px;color:var(--dim)}
+  .btn.big{grid-column:span 2;width:145px;height:100px;border-radius:50px;font-size:17px;
+    background:rgba(52,40,32,.72);border-color:#6d5b41;}
+  .btn.on{border-color:#b7a56a;color:#f6eec9;box-shadow:0 0 0 2px rgba(180,160,90,.2) inset;}
+  .btn:active{filter:brightness(1.4)}
+  #topBtns{position:absolute;top:calc(8px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);
+    display:flex;gap:8px;pointer-events:auto;z-index:7;}
+  .tb{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 12px;font-size:12px;color:#c9c8b6;}
+  .tb:active{filter:brightness(1.4)}
+
+  /* ---------- overlays ---------- */
+  .layer{position:absolute;inset:0;z-index:20;background:rgba(6,8,6,.82);display:none;
+    align-items:center;justify-content:center;padding:18px;overflow:auto;}
+  .layer.show{display:flex;}
+  .sheet{width:min(560px,100%);background:#12150f;border:1px solid var(--line);border-radius:12px;
+    padding:16px;pointer-events:auto;box-shadow:0 10px 40px rgba(0,0,0,.6);}
+  .sheet h1{margin:0 0 4px;font-size:24px;letter-spacing:6px;color:#e8e2c4;font-weight:600;}
+  .sheet h2{margin:0 0 10px;font-size:13px;color:var(--dim);font-weight:400;letter-spacing:2px;}
+  .sheet p{font-size:13px;line-height:1.65;color:#c6c4b0;margin:8px 0;}
+  .sheet .go{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;}
+  .sheet button{flex:1;min-width:120px;background:#2b3123;border:1px solid #4d5540;color:#e5e2cb;
+    border-radius:8px;padding:11px;font-size:15px;}
+  .sheet button.ghost{background:#1b1e17;border-color:#3a3f33;color:#b7b6a3;}
+  .sheet button:active{filter:brightness(1.3)}
+  ul.rules{margin:6px 0 0;padding-left:18px;font-size:12.5px;line-height:1.7;color:#bcbba7}
+  ul.rules b{color:#e7e2c6;font-weight:600}
+
+  /* inventory / build / loot grids */
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:10px;}
+  .cell{pointer-events:auto;background:#1c2017;border:1px solid #3d4334;border-radius:9px;padding:9px 10px;}
+  .cell.sel{border-color:#b7a56a;background:#262b1e;}
+  .cell .n{font-size:14px;color:#e6e3c9;} .cell .c{font-size:11px;color:var(--dim);margin-top:2px;}
+  .cell .q{float:right;font-size:14px;color:#f0e6bd;}
+  .cell.dis{opacity:.45;}
+  .tabs{display:flex;gap:6px;margin-top:4px;}
+  .tab{font-size:12px;padding:4px 10px;border:1px solid #3d4334;border-radius:14px;color:#b6b5a2;}
+  .tab.on{border-color:#b7a56a;color:#f2ecca;background:#262b1e;}
+  .close{position:absolute;right:14px;top:12px;font-size:20px;color:#8f8e7c;}
+  .hint{font-size:11.5px;color:#7d7c6c;margin-top:10px;line-height:1.6;}
+  #joyHint{position:absolute;left:0;right:0;bottom:calc(4px + env(safe-area-inset-bottom));text-align:center;
+    font-size:10px;color:#5f6053;z-index:6;pointer-events:none;}
+
+  /* 窄屏手机（<=420px）缩小控件，避免左右手互相压住 */
+  @media (max-width:420px){
+    #pad{width:112px;height:112px;left:calc(10px + env(safe-area-inset-left));bottom:calc(18px + env(safe-area-inset-bottom));}
+    #stick{width:52px;height:52px;margin:-26px 0 0 -26px;}
+    #btns{grid-template-columns:repeat(3,58px);gap:7px;right:calc(8px + env(safe-area-inset-right));bottom:calc(14px + env(safe-area-inset-bottom));}
+    .btn{height:58px;font-size:12px;}
+    .btn.big{width:123px;height:84px;font-size:15px;}
+    .stats{width:118px;padding:6px;}
+    #minimap{width:78px;height:78px;}
+    .chips{top:calc(78px + 18px + env(safe-area-inset-top));}
+    .chip{font-size:10px;padding:2px 6px;}
+    #topBtns .tb{padding:5px 9px;font-size:11px;}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="cv"></canvas>
+
+  <div id="hud">
+    <div id="dmgFlash"></div>
+    <div class="stats">
+      <div class="clock"><b id="clock">第1天 07:00</b><span class="phase" id="phase">白天</span></div>
+      <div class="bar hp"><i id="bHp"></i></div>
+      <div class="bar food"><i id="bFood"></i></div>
+      <div class="bar water"><i id="bWater"></i></div>
+      <div class="bar energy"><i id="bEnergy"></i></div>
+      <div class="bar sanity"><i id="bSanity"></i></div>
+    </div>
+    <canvas id="minimap" width="192" height="192"></canvas>
+    <div class="chips" id="chips"></div>
+    <div id="alertWrap"><div id="alertTxt"></div></div>
+    <div id="toasts"></div>
+    <div id="prompt"></div>
+  </div>
+
+  <div id="topBtns">
+    <div class="tb" id="tbBag">背包</div>
+    <div class="tb" id="tbBuild">建造</div>
+    <div class="tb" id="tbSound">音效·开</div>
+    <div class="tb" id="tbMenu">菜单</div>
+  </div>
+
+  <div id="pad"><div id="stick"></div></div>
+  <div id="btns">
+    <div class="btn big" data-act="attack">攻击<br><span>砍/射</span></div>
+    <div class="btn" data-act="use">互动</div>
+    <div class="btn" data-act="sprint">冲刺</div>
+    <div class="btn" data-act="light">手电</div>
+  </div>
+  <div id="joyHint">摇杆移动 · 桌面 WASD + 空格攻击</div>
+
+  <!-- 菜单 -->
+  <div class="layer" id="layerMenu"><div class="sheet">
+    <h1>暗林 · 幸存夜</h1>
+    <h2>DARK FOREST — 俯视角生存（灵感来自 PC 游戏 Darkwood 的爱好者自制：玩法与素材均为原创，不含原作内容，非官方作品）</h2>
+    <div id="menuBody">
+      <p>你在一片会吃人的森林里醒来。白天搜刮、砍柴、把据点围起来；<b style="color:#e6d9a8">夜里会有人来</b>。
+      森林会吞噬意志薄弱的人——<b style="color:#c8b8e0">理智</b>掉太低，你会看见不存在的东西。</p>
+      <ul class="rules">
+        <li><b>目标</b>：在森林里找到 3 个 <b>电台零件</b>（地图上的红据点，有守卫），带回小屋修好电台，撑到救援。</li>
+        <li><b>五维</b>：生命 / 饥饿 / 口渴 / 体力 / 理智。饿了渴了会掉血，夜里黑暗和血腥会啃理智。</li>
+        <li><b>潜行</b>：匪徒有视锥和听力。开枪、冲刺会暴露；有人盯上你时屏幕上方会出现黄色警报。</li>
+        <li><b>建造</b>：木墙围住小屋，木门要开合，篝火提供光和熟食，陷阱能阴人。</li>
+        <li><b>睡觉</b>：在屋里对床按互动可跳过夜晚；附近有敌人就睡不着，天亮自动醒并回体力。</li>
+        <li><b>死亡即结束</b>，进度会自动存档在浏览器本地。</li>
+      </ul>
+      <div class="go">
+        <button id="btnNew">开始新游戏</button>
+        <button id="btnCont" class="ghost" style="display:none">继续</button>
+        <button id="btnUpdMenu" class="ghost" style="display:none">检查更新</button>
+      </div>
+      <div class="hint">提示：手机上建议横屏，或浏览器「添加到主屏幕」全屏玩。</div>
+      <div class="hint" id="menuVer" style="display:none"></div>
+    </div>
+  </div></div>
+
+  <!-- 死亡 / 胜利 -->
+  <div class="layer" id="layerEnd"><div class="sheet">
+    <h1 id="endTitle">你死了</h1>
+    <h2 id="endSub"></h2>
+    <p id="endTxt"></p>
+    <div class="go"><button id="btnEndNew">重新开始</button><button id="btnEndLoad" class="ghost">读取上一版存档</button></div>
+  </div></div>
+
+  <!-- 搜刮 -->
+  <div class="layer" id="layerLoot"><div class="sheet">
+    <h2 id="lootTitle" style="font-size:16px;color:#e6e3c9">木箱</h2>
+    <div class="grid" id="lootGrid"></div>
+    <div class="go"><button id="lootAll">全部拿走</button><button id="lootClose" class="ghost">关闭</button></div>
+  </div></div>
+
+  <!-- 背包 -->
+  <div class="layer" id="layerBag"><div class="sheet" style="position:relative">
+    <div class="close" id="bagClose">✕</div>
+    <h2 style="font-size:16px;color:#e6e3c9">背包 · 点击可使用</h2>
+    <div class="grid" id="bagGrid"></div>
+    <div class="hint" id="bagHint"></div>
+  </div></div>
+
+  <!-- 建造 -->
+  <div class="layer" id="layerBuild"><div class="sheet" style="position:relative">
+    <div class="close" id="buildClose">✕</div>
+    <h2 style="font-size:16px;color:#e6e3c9">建造 · 选一项后到地图上落点</h2>
+    <div class="grid" id="buildGrid"></div>
+    <div class="hint">建造会消耗材料并占用体力。围好墙，夜晚匪徒会先砸墙而不是直接进屋。</div>
+  </div></div>
+
+  <!-- 暂停菜单 -->
+  <div class="layer" id="layerPause"><div class="sheet">
+    <h1 style="font-size:20px">暂停</h1>
+    <p id="pauseStat"></p>
+    <div class="go">
+      <button id="btnResume">继续游戏</button>
+      <button id="btnSave" class="ghost">保存</button>
+      <button id="btnQuit" class="ghost">回主菜单</button>
+      <button id="btnUpdate" class="ghost" style="display:none">检查更新</button>
+    </div>
+    <div class="hint">操作：左摇杆移动 · 攻击键长按连续挥砍 · 互动键搜刮/开门/睡觉 · 冲刺消耗体力并吸引敌人</div>
+    <div class="hint" id="verTag" style="display:none"></div>
+  </div></div>
+</div>
+
+<script src="js/util.js"></script>
+<script src="js/android.js"></script>
+<script src="js/world.js"></script>
+<script src="js/render.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/entities.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

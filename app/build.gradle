@@ -1,0 +1,100 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+// ── 签名配置 ───────────────────────────────────────────────────────────
+// 密钥库与密码放在工程根目录的 keystore.properties（已在 .gitignore 里，绝不入库）。
+// 密码留空时从环境变量 ANLIN_STORE_PASSWORD / ANLIN_KEY_PASSWORD 读取。
+def keystorePropsFile = rootProject.file('keystore.properties')
+def keystoreProps = new Properties()
+if (keystorePropsFile.exists()) {
+    keystorePropsFile.withInputStream { keystoreProps.load(it) }
+}
+def ksPath = keystoreProps['storeFile']
+def ksStorePass = keystoreProps['storePassword'] ?: System.getenv('ANLIN_STORE_PASSWORD')
+def ksKeyAlias = keystoreProps['keyAlias']
+def ksKeyPass = keystoreProps['keyPassword'] ?: System.getenv('ANLIN_KEY_PASSWORD')
+// storeFile 推荐写绝对路径（密钥库放在工程外面，永远不入库）；也兼容相对工程根目录
+def ksFile = ksPath ? (new File(ksPath).isAbsolute() ? new File(ksPath)
+    : new File(keystorePropsFile.parentFile, ksPath)) : null
+def canSignRelease = keystorePropsFile.exists() && ksFile != null && ksFile.exists()
+
+// 想发 release 包又没配密钥 -> 直接报错停下，免得悄悄发出去一个未签名 / debug 签名的包
+gradle.taskGraph.whenReady { graph ->
+    def wantsRelease = graph.allTasks.any { it.name in ['assembleRelease', 'bundleRelease', 'packageRelease'] }
+    if (wantsRelease && !canSignRelease) {
+        throw new GradleException(
+            "找不到可用的 release 密钥库（keystore.properties 里的 storeFile=${ksPath}）\n" +
+            "拒绝构建未签名的 release 包。"
+        )
+    }
+}
+
+android {
+    namespace 'com.linan.anlin'
+    compileSdk 36
+    buildToolsVersion "36.1.0"
+
+    defaultConfig {
+        applicationId "com.linan.anlin"
+        minSdk 26
+        targetSdk 36
+        versionCode 1
+        versionName "0.1"
+    }
+
+    signingConfigs {
+        release {
+            if (canSignRelease) {
+                storeFile ksFile
+                storePassword ksStorePass
+                keyAlias ksKeyAlias
+                keyPassword ksKeyPass
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix ".debug"
+            minifyEnabled false
+        }
+        release {
+            minifyEnabled false
+            if (canSignRelease) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    // 产物名用作品原名：暗林-vX.Y-release.apk（见发布与命名规范）
+    applicationVariants.all { variant ->
+        variant.outputs.all { out ->
+            out.outputFileName = "暗林-v${variant.versionName}-${variant.name}.apk"
+        }
+    }
+
+    packagingOptions {
+        resources { excludes += ['META-INF/*.version', 'kotlin/**', 'DebugProbesKt.bin'] }
+    }
+}
+
+dependencies {
+    // FileProvider（把下载好的更新包交给系统安装器）
+    implementation 'androidx.core:core-ktx:1.13.1'
+    // 游戏内核在 assets/www/（WebView 本地加载，零网络、零第三方 JS 依赖）
+    // 检查更新用 HttpsURLConnection + 系统 DownloadManager，不引第三方库
+
+    testImplementation 'junit:junit:4.13.2'
+    // 单元测试里用真实的 org.json（Android 的 org.json 在 JVM 测试中只是空壳桩）
+    testImplementation 'org.json:json:20240303'
+}
