@@ -19,8 +19,11 @@ APK="app/build/outputs/apk/release/暗林-v${VER}-release.apk"
 
 mkdir -p dist
 cp "$APK" "dist/"
+# GitHub 会把资产名里的非 ASCII 字符吃掉，上传一律用 ASCII 名
+cp "$APK" "dist/my_darkwood-v${VER}-release.apk"
 cd dist
-shasum -a 256 "暗林-v${VER}-release.apk" | tee "SHA256SUMS-v${VER}.txt"
+shasum -a 256 "my_darkwood-v${VER}-release.apk" | tee "SHA256SUMS-v${VER}.txt"
 echo
-echo "产物：dist/暗林-v${VER}-release.apk（$(du -h "暗林-v${VER}-release.apk" | cut -f1)）"
-echo "发布：gh release create v${VER} \"暗林-v${VER}-release.apk\" --title \"v${VER}\" --notes-file ../docs/release-notes-v${VER}.md"
+echo "本地：dist/暗林-v${VER}-release.apk（$(du -h "暗林-v${VER}-release.apk" | cut -f1)）"
+echo "上传：dist/my_darkwood-v${VER}-release.apk"
+echo "发布：gh release create v${VER} my_darkwood-v${VER}-release.apk --title \"v${VER} 暗林 · 幸存夜\" --notes-file ../docs/release-notes-v${VER}.md"

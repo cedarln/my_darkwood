@@ -7,7 +7,7 @@
 
 ## 下载
 
-[Releases](https://github.com/cedarln/my_darkwood/releases) 里的 `暗林-vX.Y-release.apk`，装上即玩（Android 8.0+，约 2MB，无需联网）。
+[Releases](https://github.com/cedarln/my_darkwood/releases) 里的 `my_darkwood-vX.Y-release.apk`，装上即玩（Android 8.0+，约 2MB，无需联网）。
 
 存档保存在本机。装新版本不会丢进度。
 
@@ -34,4 +34,5 @@ app/src/main/java/         Android 壳：WebView + 应用内更新
 app/src/test/java/         更新与联网边界的单元测试
 ```
 
-构建：配好 `keystore.properties`（不入库）后 `./gradlew assembleRelease testDebugUnitTest`。
+构建：配好 `keystore.properties`（不入库）后 `./scripts/build-release.sh`（跑单测 + 出签名包）。
+发布资产名用 ASCII：GitHub 会把中文文件名里的非 ASCII 字符吃掉，所以本地 `暗林-vX.Y-release.apk` 上传时改名 `my_darkwood-vX.Y-release.apk`。
