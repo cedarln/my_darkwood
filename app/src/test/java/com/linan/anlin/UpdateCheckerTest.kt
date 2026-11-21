@@ -181,4 +181,42 @@ class UpdateCheckerTest {
         f.writeText("hello")
         assertFalse(UpdateChecker.verify(f, ""))
     }
+
+    // ---------- 任务记录丢失：不许当成「排队中」 ----------
+
+    @Test
+    fun lostRow_stillQueuedKeepsWaiting() {
+        // 只查丢一次，还没到判定门槛：按排队处理，不误判成失败
+        val f = File.createTempFile("anlin-none", ".apk")
+        f.delete()
+        assertEquals(
+            UpdateChecker.Lost.KeepWaiting,
+            UpdateChecker.lostVerdict(UpdateChecker.LOST_POLL_LIMIT - 1, f, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
+        )
+    }
+
+    @Test
+    fun lostRow_completePackageGoesStraightToInstall() {
+        val f = File.createTempFile("anlin-test", ".apk")
+        f.deleteOnExit()
+        f.writeText("hello")
+        assertEquals(
+            UpdateChecker.Lost.Install,
+            UpdateChecker.lostVerdict(UpdateChecker.LOST_POLL_LIMIT, f, "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
+        )
+    }
+
+    @Test
+    fun lostRow_missingOrBrokenPackageIsDeadNotWaiting() {
+        val good = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        val gone = File.createTempFile("anlin-gone", ".apk")
+        gone.delete()
+        assertEquals(UpdateChecker.Lost.Dead, UpdateChecker.lostVerdict(UpdateChecker.LOST_POLL_LIMIT, gone, good))
+
+        val half = File.createTempFile("anlin-half", ".apk")
+        half.deleteOnExit()
+        half.writeText("hello")
+        // 校验不过（下坏/被改）也必须判定为中断，而不是继续显示「等待网络」
+        assertEquals(UpdateChecker.Lost.Dead, UpdateChecker.lostVerdict(UpdateChecker.LOST_POLL_LIMIT + 3, half, "0000"))
+    }
 }

@@ -132,6 +132,24 @@ object UpdateChecker {
             status != DownloadManager.STATUS_SUCCESSFUL &&
             status != DownloadManager.STATUS_FAILED
 
+    /**
+     * status == 0 表示「这条任务在系统下载库里查不到了」，和「排队中」不是一回事。
+     * 排队可以继续干等；任务丢了还一直显示「等待网络」就是把玩家钉在一个死对话框上。
+     */
+    const val LOST_POLL_LIMIT = 4
+
+    sealed class Lost {
+        object KeepWaiting : Lost() // 还查得到状态：正常排队
+        object Install : Lost()     // 任务没了，但本地包已完整且校验通过
+        object Dead : Lost()        // 任务没了且本地包不可用：别再干等
+    }
+
+    fun lostVerdict(missingPolls: Int, apk: File, sha256: String): Lost = when {
+        missingPolls < LOST_POLL_LIMIT -> Lost.KeepWaiting
+        apk.exists() && verify(apk, sha256) -> Lost.Install
+        else -> Lost.Dead
+    }
+
     // ---------- GitHub API（阻塞调用，请在子线程执行） ----------
 
     fun currentVersion(ctx: Context): String = try {

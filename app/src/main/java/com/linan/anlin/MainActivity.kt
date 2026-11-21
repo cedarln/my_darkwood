@@ -246,12 +246,13 @@ class MainActivity : android.app.Activity() {
             .show()
 
         val poll = object : Runnable {
+            var missing = 0
             override fun run() {
                 if (!dialog.isShowing) return
+                val status = UpdateChecker.downloadStatus(this@MainActivity, id)
                 val (soFar, total) = UpdateChecker.downloadProgress(this@MainActivity, id)
-                when (val p = UpdateChecker.progressOf(
-                    UpdateChecker.downloadStatus(this@MainActivity, id), soFar, total
-                )) {
+                missing = if (status == 0) missing + 1 else 0
+                when (val p = UpdateChecker.progressOf(status, soFar, total)) {
                     UpdateChecker.Progress.Success -> {
                         dialog.dismiss()
                         val apk = UpdateChecker.downloadedFile(this@MainActivity, latest.apkName)
@@ -285,8 +286,28 @@ class MainActivity : android.app.Activity() {
                         // DownloadManager 只肯在过了系统校验的网络上传字节，
                         // 排队时显示 0% 会让玩家以为卡死——挂起态必须说清楚任务没丢
                         bar.isIndeterminate = true
-                        label.text = "等待网络…（系统下载服务排队中，连上可用网络会自动继续）"
-                        mainHandler.postDelayed(this, 800)
+                        when (UpdateChecker.lostVerdict(
+                            missing, UpdateChecker.downloadedFile(this@MainActivity, latest.apkName), latest.sha256
+                        )) {
+                            UpdateChecker.Lost.KeepWaiting -> {
+                                label.text = "等待网络…（系统下载服务排队中，连上可用网络会自动继续）"
+                                mainHandler.postDelayed(this, 800)
+                            }
+                            UpdateChecker.Lost.Install -> {
+                                // 任务记录被系统清掉了，但包已经完整下好：直接进校验后的安装
+                                dialog.dismiss()
+                                confirmInstall(latest, UpdateChecker.downloadedFile(this@MainActivity, latest.apkName))
+                            }
+                            UpdateChecker.Lost.Dead -> {
+                                dialog.dismiss()
+                                AlertDialog.Builder(this@MainActivity)
+                                    .setTitle("下载中断")
+                                    .setMessage("系统下载服务把任务丢了，本地包也不完整。要重试一次吗？")
+                                    .setPositiveButton("重试") { _, _ -> startUpdateDownload(latest) }
+                                    .setNegativeButton("算了", null)
+                                    .show()
+                            }
+                        }
                     }
                 }
             }
