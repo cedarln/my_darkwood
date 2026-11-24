@@ -39,14 +39,16 @@
   function newState(world, player) {
     return {
       world_: world, player: player,
-      enemies: [], bullets: [], drops: [], decals: [], pops: [],
+      enemies: [], bullets: [], drops: [], decals: [], pops: [], bombs: [], fires: [],
       time: { minutes: DW.DAY_START, day: 1 },
       cam: { x: player.x, y: player.y },
       t: 0, input: DW.ui.input, build: { type: null }, buildTile: null,
-      flags: { announced: false, raidNight: 0, slept: 0 },
+      flags: { announced: false, raidNight: 0, slept: 0, noRaid: 0, dogFriend: 0 },
       flash: null, flashHurt: 0, shake: 0, rescue: 0, rescueDay: 0,
       mouseWorld: null, mouseScreen: null, openLoot: null, saveT: 0,
-      spawnQueue: [], raidAt: null, sleepT: 0
+      spawnQueue: [], raidAt: null, sleepT: 0,
+      weather: 'clear', weatherUntil: 0, evtDue: false, evtDay: 0, evtId: '', freeze: false,
+      nightQueue: []
     };
   }
 
@@ -228,6 +230,8 @@
   }
 
   function update(dt) {
+    // 事件选择面板打开时世界静止：读条被人砍死不是设计，是坑
+    if (S.freeze) { DW.ui.update(dt); return; }
     S.t += dt;
     // 时间
     S.time.minutes += dt * DW.MIN_PER_SEC;
@@ -244,6 +248,8 @@
     if (DW.state !== 'play') { draw(); return; }
     DW.ent.updateEnemies(S, dt);
     DW.ent.updateBullets(S, dt);
+    DW.ent.updateBombs(S, dt);
+    DW.ent.updateFires(S, dt);
     if (S.input.attack) DW.ent.attack(S);
 
     // 掉落物自动拾取
@@ -286,6 +292,9 @@
 
     // 袭击
     if (S.raidAt && S.t > S.raidAt) { doRaid(); S.raidAt = null; }
+
+    // 天亮后的事件（睡觉醒来的那帧也会走到这里）
+    if (S.evtDue) { S.evtDue = false; DW.events.roll(S); }
 
     // 救援
     if (S.rescue && S.time.day >= S.rescueDay) {
@@ -352,8 +361,23 @@
   game.onNightfall = function (st) {
     var day = st.time.day;
     if (DW.music) DW.music.event('night');
-    DW.ui.toast('天黑了。森林开始移动。', 'warn');
-    if (day >= 2 && day % 2 === 0) {
+    DW.ui.toast(st.weather === 'rain' ? '天黑了，雨声盖过了一切。' : '天黑了。森林开始移动。', 'warn');
+    // 事件池点名的客人，今晚一起到货
+    for (var q = 0; q < st.nightQueue.length; q++) {
+      var nq = st.nightQueue[q];
+      for (var k = 0; k < nq.n; k++) spawnAt(DW.rand(13, 20), nq.kind, nq.kind === 'looter' ? { raid: true } : {});
+      if (nq.msg) DW.ui.toast(nq.msg, 'warn');
+    }
+    st.nightQueue.length = 0;
+    if (st.flags.dogFriend === day - 1) {
+      // 白天放过的那条狗，夜里替你叫了一声：把今晚的袭击提前预警
+      DW.ui.toast('远处有狗在叫，一直朝着一个方向。', 'good');
+      st.player.sanity = DW.clamp(st.player.sanity + 4, 0, 100);
+      if (!st.raidAt) st.flags.noRaid = day;
+    }
+    if (st.flags.noRaid === day) {
+      st.flags.noRaid = 0;
+    } else if (day >= 2 && day % 2 === 0) {
       st.raidAt = st.t + DW.rand(35, 70);
       st.flags.raidNight = day;
     } else if (day >= 3) {
@@ -369,8 +393,11 @@
     if (DW.music) DW.music.event('raid');
     DW.sfx.alarm();
     DW.ui.toast('有人袭击你的据点！（' + n + ' 人）', 'bad');
+    // 第 4 天起，每波里可能混进一个专门放火的
+    var burner = day >= 4 && DW.chance(0.45) ? DW.randInt(0, n) : -1;
     for (var i = 0; i < n; i++) {
-      spawnAt(DW.rand(11, 16), i % 3 === 0 ? 'feral' : 'bandit', { raid: true, gun: i !== 0 });
+      if (i === burner) spawnAt(DW.rand(12, 17), 'looter', { raid: true });
+      else spawnAt(DW.rand(11, 16), i % 3 === 0 ? 'feral' : 'bandit', { raid: true, gun: i !== 0 });
     }
     S.shake = 0.4;
   }
@@ -397,17 +424,26 @@
     var a = DW.rand(0, 6.283), d = DW.rand(26, 40) * TS;
     var x = P.x + Math.cos(a) * d, y = P.y + Math.sin(a) * d;
     if (DW.collide(x, y, 12)) return;
-    DW.ent.spawnEnemy(S, x, y, DW.isNight(S.time.minutes) ? 'feral' : 'bandit', {});
+    var kind = DW.isNight(S.time.minutes) ? 'feral' : 'bandit';
+    // 第 4 天之后，野外也可能刷出专门烧据点的
+    if (S.time.day >= 4 && DW.chance(0.18)) kind = 'looter';
+    DW.ent.spawnEnemy(S, x, y, kind, {});
   }
 
   game.newDay = function (st) {
     var P = st.player;
     DW.ui.toast('第 ' + st.time.day + ' 天。', 'good');
+    if (st.weather === 'rain' && st.time.day >= st.weatherUntil) {
+      st.weather = 'clear';
+      DW.ui.toast('雨停了。', 'good');
+    }
     if (st.time.day % 4 === 0 && !st.rescue) {
       DW.ui.toast('森林里安静得不对劲…（物资刷新了）', 'warn');
       refreshLoot(st);
     }
     if (P.sanity < 40) DW.ui.toast('你一夜没睡好，理智 ' + Math.round(P.sanity), 'warn');
+    // 早上的事交给事件池，别在这一帧连着弹两个面板
+    st.evtDue = true;
   };
 
   function refreshLoot(st) {
@@ -619,6 +655,8 @@
       P.sanity = DW.clamp(P.sanity + (lit ? 26 : 16), 0, 100);
       DW.state = 'play';
       game.save(false);
+      // 睡过去的夜里，火和没落地的瓶子都不该再挂着
+      S.fires.length = 0; S.bombs.length = 0;
       var hh = Math.floor(S.time.minutes / 60);
       DW.ui.toast('天亮了，第 ' + S.time.day + ' 天 ' + hh + ':00', 'good');
       // 夜里剩下的袭击者撤退
@@ -641,6 +679,8 @@
         game.win('你合上眼再睁开时，屋顶已经在震。<br>直升机的探照灯扫过树冠——你活着离开了暗林。');
         return;
       }
+      // 睡过午夜也算新的一天：早上的事照样要发生
+      game.newDay(S);
     }
     if (nap) {
       S.player.energy = DW.clamp(S.player.energy + 40, 0, 100);

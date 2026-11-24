@@ -182,6 +182,7 @@
     SPR.guard = figure({ coat: '#5b5944', coat2: '#464436', legs: '#2c2a20', skin: '#c0956a', hair: '#1a1813', gun: 1 }, 1.15);
     SPR.feral = figure({ coat: '#7c6c55', coat2: '#5f5340', legs: '#3b3126', skin: '#b3a184', hair: '#787060' }, 1.1);
     SPR.ghost = figure({ coat: 'rgba(130,120,165,.6)', coat2: 'rgba(96,86,128,.55)', legs: 'rgba(74,68,96,.5)', skin: 'rgba(210,205,225,.55)', hair: 'rgba(64,58,84,.5)' }, 1.25);
+    SPR.looter = figure({ coat: '#463a4e', coat2: '#332939', legs: '#241f2a', skin: '#b9988a', hair: '#201b22' }, 1.15);
 
     // 容器
     SPR.cont = {};
@@ -372,6 +373,11 @@
       if (!world_.explored[DW.idx(g2.tx, g2.ty)]) continue;
       drawStruct(ctx, { st: g2 }, sx, sy, S);
     }
+    // 火：画在地面上，人从火上走过会疼
+    for (var fi = 0; fi < S.fires.length; fi++) {
+      var f = S.fires[fi];
+      drawFire(ctx, sx(f.x), sy(f.y), f, S);
+    }
     // 建筑：立起来的部分（参与遮挡排序）
     for (var si = 0; si < world_.structures.length; si++) {
       var st = world_.structures[si];
@@ -417,6 +423,22 @@
       ctx.stroke();
     }
     ctx.restore();
+
+    // 飞行中的燃烧瓶（抛物线 + 落点阴影，看得见才好躲）
+    for (var bb = 0; bb < S.bombs.length; bb++) {
+      var bm = S.bombs[bb];
+      var bx = sx(bm.px), by = sy(bm.py), lift = bm.pz * 26;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(0,0,0,.35)';
+      ctx.beginPath(); ctx.ellipse(sx(bm.tx), sy(bm.ty), 9, 5, 0, 0, 7); ctx.stroke();
+      ctx.translate(bx, by - lift);
+      ctx.rotate(S.t * 9 + bb);
+      ctx.fillStyle = '#6d7a52';
+      ctx.fillRect(-3, -5, 6, 10);
+      ctx.fillStyle = '#c9d1a8'; ctx.fillRect(-1.5, -8, 3, 4);
+      ctx.fillStyle = 'rgba(255,170,80,.9)'; ctx.beginPath(); ctx.arc(0, -9, 2.2, 0, 7); ctx.fill();
+      ctx.restore();
+    }
 
     // 枪口闪光
     if (S.flash && S.flash.t > 0) {
@@ -477,6 +499,17 @@
         darkX.fillStyle = rg;
         darkX.fillRect(lx - rr, ly - rr, rr * 2, rr * 2);
       }
+      // 火堆也是光源：夜里着火的据点很亮，但亮不等于安全
+      for (var ffi = 0; ffi < S.fires.length; ffi++) {
+        var ff = S.fires[ffi];
+        var ffx = sx(ff.x), ffy = sy(ff.y);
+        if (ffx < -220 || ffy < -220 || ffx > vw + 220 || ffy > vh + 220) continue;
+        var ffr = 150 * (0.7 + 0.3 * Math.sin(S.t * 7 + ffi));
+        var ffg = darkX.createRadialGradient(ffx, ffy, 6, ffx, ffy, ffr);
+        ffg.addColorStop(0, 'rgba(0,0,0,.95)'); ffg.addColorStop(0.5, 'rgba(0,0,0,.5)'); ffg.addColorStop(1, 'rgba(0,0,0,0)');
+        darkX.fillStyle = ffg;
+        darkX.fillRect(ffx - ffr, ffy - ffr, ffr * 2, ffr * 2);
+      }
       if (S.flash && S.flash.t > 0) {
         var fr = 140;
         var fg = darkX.createRadialGradient(sx(S.flash.x), sy(S.flash.y), 4, sx(S.flash.x), sy(S.flash.y), fr);
@@ -504,6 +537,17 @@
       ctx.fillStyle = fgr;
       ctx.fillRect(fx - rad, fy - rad, rad * 2, rad * 2);
     }
+    for (var fg = 0; fg < S.fires.length; fg++) {
+      var ffw = S.fires[fg];
+      var wfx = sx(ffw.x), wfy = sy(ffw.y);
+      if (wfx < -140 || wfy < -140 || wfx > vw + 140 || wfy > vh + 140) continue;
+      var wrad = 110 * (0.7 + 0.3 * Math.sin(S.t * 8 + fg * 1.7));
+      var wfgr = ctx.createRadialGradient(wfx, wfy, 2, wfx, wfy, wrad);
+      wfgr.addColorStop(0, 'rgba(255,150,60,' + (0.3 + night * 0.3) + ')');
+      wfgr.addColorStop(1, 'rgba(255,120,40,0)');
+      ctx.fillStyle = wfgr;
+      ctx.fillRect(wfx - wrad, wfy - wrad, wrad * 2, wrad * 2);
+    }
     ctx.restore();
 
     // 视野雾（暗林那种"看不远"）
@@ -514,6 +558,26 @@
     fg2.addColorStop(1, 'rgba(8,10,7,' + (0.82 + (1 - amb) * 0.15) + ')');
     ctx.fillStyle = fg2;
     ctx.fillRect(0, 0, vw, vh);
+
+    // 下雨：斜线 + 冷色，视野本来就窄，现在更窄一点
+    if (S.weather === 'rain') {
+      ctx.save();
+      ctx.globalAlpha = 0.16;
+      ctx.fillStyle = '#5a6b78';
+      ctx.fillRect(0, 0, vw, vh);
+      ctx.globalAlpha = 0.4;
+      ctx.strokeStyle = '#a8bcc8';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (var rn = 0; rn < 70; rn++) {
+        var rx = (rn * 97.3 + S.t * 260) % (vw + 60) - 30;
+        var ry = (rn * 173.7 + S.t * 900) % (vh + 40) - 20;
+        ctx.moveTo(rx, ry);
+        ctx.lineTo(rx - 5, ry + 15);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
 
     // 理智：色彩偏移 + 暗角抖动
     if (P.sanity < 55) {
@@ -591,6 +655,36 @@
       ctx.fillStyle = st.hp / st.maxhp > .4 ? '#a9883f' : '#a4443c';
       ctx.fillRect(px + 4, py - 6, (TS - 8) * (st.hp / st.maxhp), 4);
     }
+  }
+  // 地上的火：烧焦的圆 + 几簇会摆的火焰 + 冒起来的火星
+  function drawFire(ctx, px, py, f, S) {
+    var k = Math.max(0.15, Math.min(1, f.life / 6)); // 快灭了就矮下去
+    var r = f.r * (0.6 + 0.4 * k);
+    ctx.save();
+    ctx.fillStyle = 'rgba(22,14,10,.75)';
+    ctx.beginPath(); ctx.ellipse(px, py, r * 1.05, r * 0.6, 0, 0, 7); ctx.fill();
+    for (var i = 0; i < 5; i++) {
+      var a = i * 1.257 + Math.sin(S.t * 0.7 + i) * 0.3;
+      var ox = Math.cos(a) * r * 0.42, oy = Math.sin(a) * r * 0.24;
+      var hh = (16 + i * 3) * k * (0.85 + Math.sin(S.t * 11 + i * 2.3) * 0.2);
+      var ww = (7 - i * 0.7) * k;
+      ctx.fillStyle = ['rgba(255,150,45,.8)', 'rgba(255,110,30,.75)', 'rgba(255,225,150,.75)'][i % 3];
+      ctx.beginPath();
+      ctx.moveTo(px + ox - ww, py + oy);
+      ctx.quadraticCurveTo(px + ox - ww * 0.6, py + oy - hh * 0.6, px + ox, py + oy - hh);
+      ctx.quadraticCurveTo(px + ox + ww * 0.6, py + oy - hh * 0.6, px + ox + ww, py + oy);
+      ctx.closePath(); ctx.fill();
+    }
+    // 火星
+    for (var s = 0; s < 4; s++) {
+      var ph = (S.t * 1.6 + s * 0.37) % 1;
+      ctx.globalAlpha = (1 - ph) * 0.8;
+      ctx.fillStyle = '#ffd08a';
+      ctx.beginPath();
+      ctx.arc(px + Math.sin(s * 2.1 + ph * 3) * 10, py - ph * 46, 1.6, 0, 7);
+      ctx.fill();
+    }
+    ctx.restore();
   }
   function drawCont(ctx, it, sx, sy, S) {
     var c = it.c, img = SPR.cont[c.type] || SPR.cont.crate;

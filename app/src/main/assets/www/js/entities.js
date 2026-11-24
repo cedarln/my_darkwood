@@ -214,7 +214,9 @@
     bandit: { hp: 52, spd: 74, spr: 'bandit', dmg: 7, gun: 0.45, gunDmg: 12, vr: 300, vrn: 165, fov: 1.7 },
     guard:  { hp: 70, spd: 82, spr: 'guard', dmg: 9, gun: 0.85, gunDmg: 16, vr: 340, vrn: 210, fov: 1.9 },
     feral:  { hp: 40, spd: 118, spr: 'feral', dmg: 15, gun: 0, gunDmg: 0, vr: 300, vrn: 320, fov: 2.4 },
-    ghost:  { hp: 24, spd: 92, spr: 'ghost', dmg: 12, gun: 0, gunDmg: 0, vr: 320, vrn: 340, fov: 2.6 }
+    ghost:  { hp: 24, spd: 92, spr: 'ghost', dmg: 12, gun: 0, gunDmg: 0, vr: 320, vrn: 340, fov: 2.6 },
+    // 掠夺者：不打人，专门烧据点。带 3 个燃烧瓶，扔完就转近战/撤。
+    looter: { hp: 46, spd: 100, spr: 'looter', dmg: 8, gun: 0, gunDmg: 0, vr: 330, vrn: 300, fov: 2.0 }
   };
 
   E.spawnEnemy = function (S, x, y, kind, opts) {
@@ -231,6 +233,7 @@
       raid: !!opts.raid, slow: 0, lost: 0, discovered: false
     };
     if (kind === 'ghost') e.life = DW.rand(9, 16);
+    if (kind === 'looter') e.molotovs = opts.molotovs === undefined ? 3 : opts.molotovs;
     S.enemies.push(e);
     return e;
   };
@@ -278,6 +281,7 @@
     drops.push(['bandage', DW.randInt(0, 1)]);
     if (e.kind === 'guard') drops.push(['metal', DW.randInt(1, 3)]);
     if (e.kind === 'feral') drops.push(['rawfood', DW.randInt(1, 2)]);
+    if (e.kind === 'looter') drops.push(['cloth', DW.randInt(1, 3)], ['metal', DW.randInt(0, 2)]);
     for (var d = 0; d < drops.length; d++) {
       if (!drops[d][1]) continue;
       S.drops.push({ x: e.x + DW.rand(-18, 18), y: e.y + DW.rand(-18, 18), k: drops[d][0], n: drops[d][1] });
@@ -287,11 +291,13 @@
     E.noise(S, e.x, e.y, 200, 0.8);
   }
   function enemyName(e) {
-    return e.kind === 'guard' ? '据点守卫' : (e.kind === 'feral' ? '林中的疯子' : (e.kind === 'ghost' ? '幻觉' : '匪徒'));
+    return e.kind === 'guard' ? '据点守卫' : (e.kind === 'feral' ? '林中的疯子' :
+      (e.kind === 'ghost' ? '幻觉' : (e.kind === 'looter' ? '掠夺者' : '匪徒')));
   }
   E.enemyName = enemyName;
 
   E.noise = function (S, x, y, r, strength) {
+    if (S.weather === 'rain') r *= 0.8; // 雨声盖过脚步
     for (var i = 0; i < S.enemies.length; i++) {
       var e = S.enemies[i];
       if (e.dead) continue;
@@ -316,6 +322,115 @@
     return best;
   }
 
+  // 掠夺者的目标：玩家自己建的东西（不含天生废墟）
+  var BURNABLE = { wall: 1, gate: 1, spike: 1, fire: 1, lamp: 1, floor: 1 };
+  function nearestBuilt(e, S) {
+    var best = null, bd = 1e9, list = S.world_.structures;
+    for (var i = 0; i < list.length; i++) {
+      var st = list[i];
+      if (st.stat || !BURNABLE[st.type]) continue;
+      var d = DW.dist(e.x, e.y, (st.tx + 0.5) * TS, (st.ty + 0.5) * TS);
+      if (d < bd) { bd = d; best = st; }
+    }
+    return best;
+  }
+
+  function throwMolotov(S, e, st) {
+    e.molotovs--;
+    e.atkCd = DW.rand(4.5, 6.5); // 扔一瓶看一会儿，不连珠炮
+    var tx = (st.tx + 0.5) * TS + DW.rand(-14, 14), ty = (st.ty + 0.5) * TS + DW.rand(-14, 14);
+    var d = DW.dist(e.x, e.y, tx, ty) || 1;
+    S.bombs.push({
+      ox: e.x, oy: e.y, px: e.x, py: e.y, tx: tx, ty: ty,
+      t: 0, dur: Math.max(0.35, d / 260), pz: 0
+    });
+    E.noise(S, e.x, e.y, 150, 0.5);
+    DW.sfx.swing();
+    if (DW.dist(S.player.x, S.player.y, tx, ty) < 620) DW.ui.toast('有人朝你的墙扔了个瓶子！', 'bad');
+  }
+
+  E.updateBombs = function (S, dt) {
+    for (var i = S.bombs.length - 1; i >= 0; i--) {
+      var b = S.bombs[i];
+      b.t += dt;
+      var k = Math.min(1, b.t / b.dur);
+      b.px = DW.lerp(b.ox, b.tx, k);
+      b.py = DW.lerp(b.oy, b.ty, k);
+      b.pz = Math.sin(k * Math.PI); // 抛物线高度，渲染用
+      if (k >= 1) { E.startFire(S, b.tx, b.ty); S.bombs.splice(i, 1); }
+    }
+  };
+
+  // ---------- 火 ----------
+  // 一场火最多 5 处：再多就不是「快去扑火」而是「这局没了」
+  E.FIRE_MAX = 5;
+  E.startFire = function (S, x, y) {
+    if (S.fires.length >= E.FIRE_MAX) return null;
+    S.fires.push({ x: x, y: y, life: DW.rand(8, 13), max: 12, r: DW.rand(30, 44), tick: DW.rand(0.2, 0.7) });
+    S.shake = Math.max(S.shake, 0.25);
+    DW.sfx.whoosh();
+    E.noise(S, x, y, 260, 0.9);
+  };
+
+  // 浇水：手里有水就能扑灭身边的火，玩家得有反制手段
+  E.douse = function (S) {
+    var P = S.player, n = 0;
+    for (var i = S.fires.length - 1; i >= 0; i--) {
+      if (DW.dist(P.x, P.y, S.fires[i].x, S.fires[i].y) < 150) { S.fires.splice(i, 1); n++; }
+    }
+    if (n) { DW.sfx.douse(); DW.ui.toast('扑灭了 ' + n + ' 处火', 'good'); }
+    return n;
+  };
+
+  E.updateFires = function (S, dt) {
+    var P = S.player, rain = S.weather === 'rain';
+    for (var i = S.fires.length - 1; i >= 0; i--) {
+      var f = S.fires[i];
+      // 下雨直接浇灭：火活不过第一秒
+      if (rain) { S.fires.splice(i, 1); continue; }
+      f.life -= dt;
+      f.tick -= dt;
+      if (f.tick <= 0) {
+        f.tick = 0.7; // 所有伤害都按这个节奏走，否则几处火会把间隔压成每帧一次
+        // 烧到附近的自建结构：一段木墙能扛住一瓶子，前提是你去扑
+        var list = S.world_.structures;
+        for (var j = 0; j < list.length; j++) {
+          var st = list[j];
+          if (st.stat || !BURNABLE[st.type]) continue;
+          var d = DW.dist(f.x, f.y, (st.tx + 0.5) * TS, (st.ty + 0.5) * TS);
+          if (d > f.r + 16) continue;
+          st.hp -= 5;
+          st.flash = 0.3;
+          if (st.hp <= 0) {
+            DW.deconstruct(st);
+            DW.ui.toast('一段' + (DW.BUILD[st.type] ? DW.BUILD[st.type].name : '建筑') + '烧塌了！', 'bad');
+          }
+        }
+        // 玩家站在火上：够疼，但留给你跑开／浇水的时间
+        if (DW.dist(P.x, P.y, f.x, f.y) < f.r * 0.8 && P.invuln <= 0) {
+          E.hurtPlayer(S, 6, '烧伤');
+          P.sanity = DW.clamp(P.sanity - 1, 0, 100);
+        }
+        // 火会往旁边爬一格（只爬向可燃建筑，不无限扩散）
+        if (f.life > 4 && S.fires.length < 4 && DW.chance(0.12)) {
+          var nx = f.x + DW.rand(-1, 1) * f.r, ny = f.y + DW.rand(-1, 1) * f.r;
+          if (nearestFireTarget(S, nx, ny)) E.startFire(S, nx, ny);
+        }
+      }
+      if (f.life <= 0) S.fires.splice(i, 1);
+    }
+  };
+
+  function nearestFireTarget(S, x, y) {
+    var list = S.world_.structures;
+    for (var j = 0; j < list.length; j++) {
+      var st = list[j];
+      if (st.stat || !BURNABLE[st.type]) continue;
+      if (DW.dist(x, y, (st.tx + 0.5) * TS, (st.ty + 0.5) * TS) < 34) return st;
+    }
+    return null;
+  }
+
   E.updateEnemies = function (S, dt) {
     var P = S.player, night = DW.isNight(S.time.minutes);
     for (var i = S.enemies.length - 1; i >= 0; i--) {
@@ -335,6 +450,7 @@
       var vr = night ? e.vrn : e.vr;
       if (P.lantern && night) vr *= 1.25;
       if (P.sprint) vr *= 1.15;
+      if (S.weather === 'rain') vr *= 0.85; // 雨幕挡视线
       if (e.ghost && P.sanity < 40) vr *= 1.35;
       var angToP = Math.atan2(P.y - e.y, P.x - e.x);
       var inCone = Math.abs(DW.angleDiff(angToP, e.face)) < (e.alert > 0.6 ? 3.2 : e.fov);
@@ -358,6 +474,27 @@
 
       var spd = e.spd * (e.slow > 0 ? 0.5 : 1);
       if (e.kind === 'feral' && !night) spd *= 0.6;
+
+      // 掠夺者的正事是放火：只要兜里还有瓶子就直奔你自建的东西，
+      // 夜袭时哪怕完全没看见你也会绕到墙边点火（扔完才转近战）。
+      if (e.kind === 'looter' && e.molotovs > 0) {
+        var burn = nearestBuilt(e, S);
+        if (burn) {
+          var ax = (burn.tx + 0.5) * TS, ay = (burn.ty + 0.5) * TS;
+          e.face = Math.atan2(ay - e.y, ax - e.x);
+          if (DW.dist(e.x, e.y, ax, ay) < 205) {
+            if (e.atkCd <= 0) throwMolotov(S, e, burn);
+          } else if (!DW.approach(e, ax, ay, spd, dt)) {
+            e.stuck = (e.stuck || 0) + dt;
+            if (e.stuck > 2.4) { // 被树或自家墙卡住：换个方向蹭一下
+              e.stuck = 0;
+              var ja = DW.rand(0, 6.28);
+              DW.approach(e, e.x + Math.cos(ja) * 90, e.y + Math.sin(ja) * 90, spd, dt);
+            }
+          } else e.stuck = 0;
+          continue;
+        }
+      }
 
       if (e.state === 'chase') {
         var tgt = canSee ? { x: P.x, y: P.y } : e.lastKnown;
@@ -483,6 +620,7 @@
       else if (key === 'sanity') P.sanity = DW.clamp(P.sanity + v, 0, 100);
     }
     DW.ui.toast('用了 ' + it.name, 'good');
+    if (k === 'water') E.douse(S); // 一水两用：解渴还是灭火，玩家自己选
     return true;
   };
 

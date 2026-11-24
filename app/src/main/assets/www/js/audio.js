@@ -84,6 +84,9 @@
   sfx.chop = function () { play(function (c) { noise(c, 0.14, 'bandpass', 320, 1.2, 0.24, 140); tone(c, 0.1, 120, 60, 0.14, 'sine'); }); };
   sfx.alarm = function () { play(function (c) { tone(c, 0.4, 520, 300, 0.16, 'square'); setTimeout(function () { tone(c, 0.4, 460, 260, 0.14, 'square'); }, 260); }); };
   sfx.collapse = function () { play(function (c) { noise(c, 0.5, 'lowpass', 700, 0.8, 0.3, 120); }); };
+  // 火：起燃是一下短促的"呼"，浇水是一声闷响
+  sfx.whoosh = function () { play(function (c) { noise(c, 0.42, 'bandpass', 420, 0.6, 0.26, 1500); }); };
+  sfx.douse = function () { play(function (c) { noise(c, 0.5, 'lowpass', 1600, 0.5, 0.3, 260); tone(c, 0.2, 900, 200, 0.08, 'sine'); }); };
   sfx.win = function () { play(function (c) { [440, 550, 660, 880].forEach(function (f, i) { setTimeout(function () { tone(c, 0.3, f, f, 0.16, 'triangle'); }, i * 160); }); }); };
   sfx.lose = function () { play(function (c) { [300, 240, 180, 110].forEach(function (f, i) { setTimeout(function () { tone(c, 0.5, f, f * 0.7, 0.18, 'sawtooth'); }, i * 220); }); }); };
 })(window);

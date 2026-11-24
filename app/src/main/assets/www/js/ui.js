@@ -5,7 +5,7 @@
   var ui = DW.ui = {};
   var S = null;
   var el = {};
-  var layers = ['Menu', 'End', 'Loot', 'Bag', 'Build', 'Pause'];
+  var layers = ['Menu', 'End', 'Loot', 'Bag', 'Build', 'Pause', 'Choice'];
 
   // 音效/音乐开关单独存，不动存档结构
   var AUDIO_KEY = 'anlin_audio_v1';
@@ -22,8 +22,12 @@
   }
   function syncAudioBtns() {
     var sb = document.getElementById('tbSound'), mb = document.getElementById('tbMusic');
-    if (sb) sb.textContent = DW.sfx.on ? '音效·开' : '音效·关';
-    if (mb) mb.textContent = DW.music.on ? '音乐·开' : '音乐·关';
+    // 状态单独一段：窄屏上 CSS 把它藏起来，关了就用删除线表示
+    if (sb) sb.innerHTML = '<span class="l">音效</span><span class="s">·' + (DW.sfx.on ? '开' : '关') + '</span>', sb.className = 'tb' + (DW.sfx.on ? '' : ' off');
+    if (mb) mb.innerHTML = '<span class="l">音乐</span><span class="s">·' + (DW.music.on ? '开' : '关') + '</span>', mb.className = 'tb' + (DW.music.on ? '' : ' off');
+    var ps = document.getElementById('btnSfx'), pm = document.getElementById('btnMusic');
+    if (ps) ps.textContent = '音效' + (DW.sfx.on ? '·开' : '·关');
+    if (pm) pm.textContent = '音乐' + (DW.music.on ? '·开' : '·关');
   }
   ui.audioFirstTouch = function () {
     if (!DW.sfx.on && !DW.music.on) return;
@@ -41,6 +45,41 @@
   function close(name) { el['layer' + name].classList.remove('show'); }
   function isOpen(name) { return el['layer' + name].classList.contains('show'); }
   ui.open = open; ui.close = close; ui.isOpen = isOpen;
+
+  /**
+   * 事件选择面板：打开期间世界冻结（S.freeze），必须选一项才继续。
+   * options: [{ label, run(S)->bool 是否接受, disabled, why }]
+   */
+  ui.choice = function (title, text, options) {
+    document.getElementById('chTitle').textContent = title;
+    document.getElementById('chText').innerHTML = text;
+    var box = document.getElementById('chBtns');
+    box.innerHTML = '';
+    var done = false;
+    for (var i = 0; i < options.length; i++) {
+      (function (op) {
+        var b = document.createElement('button');
+        b.className = 'ghost';
+        b.textContent = op.label + (op.disabled ? '（' + (op.why || '材料不够') + '）' : '');
+        if (op.disabled) b.classList.add('dim');
+        b.addEventListener('click', function () {
+          if (done) return;
+          var ok = true, boom = null;
+          try { ok = op.run(S) !== false; }
+          catch (e) { ok = true; boom = e; } // 事件代码出错也不能把玩家关在面板里
+          if (!ok) return; // 材料不够之类：面板留着，让玩家换一项
+          done = true;
+          close('Choice');
+          S.freeze = false;
+          if (boom) ui.toast('这个事件没走完：' + boom.message, 'warn');
+          DW.game.loopOn();
+        });
+        box.appendChild(b);
+      })(options[i]);
+    }
+    S.freeze = true;
+    open('Choice');
+  };
 
   // ---------- 输入 ----------
   var input = ui.input = { vec: { x: 0, y: 0 }, sprint: false, attack: false, aimAngle: null, mouseActive: false };
@@ -83,7 +122,7 @@
   ui.init = function (state) {
     S = state;
     loadAudioPrefs(); syncAudioBtns();
-    ['layerMenu', 'layerEnd', 'layerLoot', 'layerBag', 'layerBuild', 'layerPause'].forEach(function (id) { el[id] = document.getElementById(id); });
+    ['layerMenu', 'layerEnd', 'layerLoot', 'layerBag', 'layerBuild', 'layerPause', 'layerChoice'].forEach(function (id) { el[id] = document.getElementById(id); });
     el.pad = document.getElementById('pad');
     el.stick = document.getElementById('stick');
     el.toasts = document.getElementById('toasts');
@@ -161,22 +200,26 @@
     });
     document.querySelector('[data-act="light"]').classList.add('on');
 
-    // 顶栏
-    document.getElementById('tbBag').addEventListener('click', function () { ui.openBag(); });
-    document.getElementById('tbBuild').addEventListener('click', function () { ui.openBuild(); });
-    document.getElementById('tbSound').addEventListener('click', function () {
+    // 顶栏 + 暂停菜单里各有一对声音开关（窄屏顶栏只留背包/建造/菜单）
+    function toggleSfx() {
       DW.sfx.on = !DW.sfx.on;
       saveAudioPrefs(); syncAudioBtns();
       if (DW.sfx.on) { DW.sfx.unlock(); DW.sfx.pick(); }
-    });
-    document.getElementById('tbMusic').addEventListener('click', function () {
+    }
+    function toggleMusic() {
       if (DW.music.on) { DW.music.disable(); }
       else if (!DW.music.enable()) {
         DW.ui.toast('这台设备不支持 WebAudio，配乐已关闭', 'warn');
         DW.music.on = false;
       } else { DW.ui.toast('配乐已开：夜里会更沉', 'good'); }
       saveAudioPrefs(); syncAudioBtns();
-    });
+    }
+    document.getElementById('tbBag').addEventListener('click', function () { ui.openBag(); });
+    document.getElementById('tbBuild').addEventListener('click', function () { ui.openBuild(); });
+    document.getElementById('tbSound').addEventListener('click', toggleSfx);
+    document.getElementById('tbMusic').addEventListener('click', toggleMusic);
+    document.getElementById('btnSfx').addEventListener('click', toggleSfx);
+    document.getElementById('btnMusic').addEventListener('click', toggleMusic);
     document.getElementById('tbMenu').addEventListener('click', function () {
       if (isOpen('Pause')) { close('Pause'); DW.state = 'play'; }
       else { ui.fillPause(); open('Pause'); DW.state = 'pause'; }
@@ -264,6 +307,7 @@
   // 原生返回键 / Escape 共用一套「先关面板，再暂停，最后交给系统」的逻辑。
   // 返回 true 表示这一层被界面吃掉了；返回 false 表示没东西可退（Android 壳据此退出游戏）。
   ui.onBack = function () {
+    if (isOpen('Choice')) return true; // 事件必须当场表态，返回键不能溜
     if (S.build.type) { S.build.type = null; return true; }
     if (isOpen('Loot')) { close('Loot'); S.openLoot = null; return true; }
     if (isOpen('Bag')) { close('Bag'); return true; }
@@ -296,8 +340,8 @@
     var hh = Math.floor(t.minutes / 60), mm = Math.floor(t.minutes % 60);
     el.clock.textContent = '第' + t.day + '天 ' + pad2(hh) + ':' + pad2(mm);
     var night = DW.isNight(t.minutes);
-    el.phase.textContent = t.rescue ? '撤离' : (night ? '夜晚' : '白天');
-    el.phase.style.color = night ? '#c8b8e0' : '#9fb070';
+    el.phase.textContent = S.rescue ? '撤离' : (night ? '夜晚' : '白天');
+    el.phase.style.color = S.weather === 'rain' ? '#8fb0c0' : (night ? '#c8b8e0' : '#9fb070');
 
     if (S.t - lastHud > 0.1) {
       lastHud = S.t;
@@ -312,7 +356,8 @@
         ['水', P.inv.water], ['弹药', P.ammo.ammo + '/' + P.ammo.shells],
         ['零件★', P.inv.part + '/3'], ['武器', (w ? w.name : '拳头')]
       ];
-      var html = '';
+      // 下雨单独挂一条：塞进左上角的时间行会把窄屏挤成两行
+      var html = S.weather === 'rain' ? '<div class="chip rain">下雨 <b>明火会灭</b></div>' : '';
       for (var i = 0; i < chip.length; i++) html += '<div class="chip">' + chip[i][0] + ' <b>' + chip[i][1] + '</b></div>';
       el.chips.innerHTML = html;
 
@@ -362,6 +407,14 @@
       if (!ww.explored[DW.idx(st.tx, st.ty)]) continue;
       x.fillStyle = st.type === 'wall' ? '#6b5535' : (st.type === 'gate' ? '#8a7038' : (st.type === 'fire' ? '#d08a3a' : '#585e52'));
       x.fillRect(st.tx * sc, st.ty * sc, sc + 0.5, sc + 0.5);
+    }
+    // 着火点：夜里哪儿在烧，地图上必须看得见
+    for (var fz = 0; fz < S.fires.length; fz++) {
+      var ff = S.fires[fz];
+      x.fillStyle = '#ff8a3a';
+      x.beginPath();
+      x.arc(ff.x / TS * sc, ff.y / TS * sc, 2.2 + Math.sin(S.t * 9 + fz) * 0.7, 0, 7);
+      x.fill();
     }
     // 据点
     for (var t2 = 0; t2 < ww.towers.length; t2++) {
